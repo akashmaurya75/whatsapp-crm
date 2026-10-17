@@ -1,0 +1,197 @@
+openapi: 3.0.3
+info:
+  title: WhatsApp CRM API
+  version: "1.0.0"
+  description: Tenant-scoped REST API. A token acts as the user who created it.
+servers:
+  - url: https://crm.example.com/api/v1
+security:
+  - bearer: []
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer }
+  parameters:
+    id: { name: id, in: path, required: true, schema: { type: integer } }
+    page: { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+    perPage: { name: per_page, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+    idem: { name: Idempotency-Key, in: header, schema: { type: string, maxLength: 191 } }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: validation_failed }
+            message: { type: string }
+            details: { type: object, additionalProperties: { type: string } }
+    Meta:
+      type: object
+      properties: { page: { type: integer }, per_page: { type: integer }, total: { type: integer } }
+    Contact:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, nullable: true }
+        phone: { type: string, example: "+919876543210" }
+        email: { type: string, nullable: true }
+        company: { type: string, nullable: true }
+        city: { type: string, nullable: true }
+        source: { type: string, nullable: true }
+        lead_status: { type: string, enum: [new, contacted, qualified, customer, lost] }
+        consent_status: { type: string, enum: [unknown, granted, revoked] }
+        opted_out_at: { type: string, nullable: true }
+        next_follow_up_at: { type: string, nullable: true }
+        archived_at: { type: string, nullable: true }
+        created_at: { type: string }
+        updated_at: { type: string }
+        tags: { type: array, items: { type: string } }
+    ContactInput:
+      type: object
+      properties:
+        phone: { type: string }
+        name: { type: string }
+        email: { type: string, format: email }
+        company: { type: string }
+        city: { type: string }
+        address: { type: string }
+        source: { type: string }
+        lead_status: { type: string, enum: [new, contacted, qualified, customer, lost] }
+        consent_status: { type: string, enum: [unknown, granted, revoked] }
+        owner_user_id: { type: integer }
+        next_follow_up_at: { type: string, example: "2026-11-01" }
+        tags: { type: array, items: { type: string } }
+    Message:
+      type: object
+      properties:
+        id: { type: integer }
+        conversation_id: { type: integer }
+        direction: { type: string, enum: [inbound, outbound] }
+        type: { type: string }
+        body: { type: string, nullable: true }
+        status: { type: string, enum: [queued, submitted, sent, delivered, read, failed, received] }
+        error_code: { type: string, nullable: true }
+        error_message: { type: string, nullable: true }
+        provider_message_id: { type: string, nullable: true }
+        created_at: { type: string }
+  responses:
+    Unauthenticated: { description: Missing/invalid token, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    Forbidden: { description: Missing permission, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    NotFound: { description: Not found (including other companies' records), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    Invalid: { description: Validation failed, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    RateLimited: { description: Rate limit exceeded, headers: { Retry-After: { schema: { type: integer } } } }
+paths:
+  /me:
+    get:
+      summary: Current token user
+      responses: { "200": { description: OK }, "401": { $ref: '#/components/responses/Unauthenticated' } }
+  /contacts:
+    get:
+      summary: List contacts
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+        - { name: q, in: query, schema: { type: string } }
+        - { name: lead_status, in: query, schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: archived, in: query, schema: { type: boolean } }
+        - { name: sort, in: query, schema: { type: string, enum: [name, created_at, last_contacted_at, lead_status] } }
+        - { name: dir, in: query, schema: { type: string, enum: [asc, desc] } }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Contact' } }, meta: { $ref: '#/components/schemas/Meta' } } } } }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+        "429": { $ref: '#/components/responses/RateLimited' }
+    post:
+      summary: Create contact
+      parameters: [ { $ref: '#/components/parameters/idem' } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ContactInput' } } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/Contact' } } } } } }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: Idempotency key reused with a different body }
+        "422": { $ref: '#/components/responses/Invalid' }
+  /contacts/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      summary: Get contact
+      responses: { "200": { description: OK }, "404": { $ref: '#/components/responses/NotFound' } }
+    patch:
+      summary: Update contact
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ContactInput' } } } }
+      responses: { "200": { description: OK }, "404": { $ref: '#/components/responses/NotFound' }, "422": { $ref: '#/components/responses/Invalid' } }
+    delete:
+      summary: Archive contact
+      responses: { "204": { description: Archived }, "404": { $ref: '#/components/responses/NotFound' } }
+  /conversations:
+    get:
+      summary: List conversations visible to the token user
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+        - { name: status, in: query, schema: { type: string, enum: [open, closed, archived] } }
+        - { name: assigned, in: query, schema: { type: string, enum: [me, unassigned, awaiting] } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: whatsapp_account_id, in: query, schema: { type: integer } }
+      responses: { "200": { description: OK } }
+  /conversations/{id}/messages:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      summary: Message history (oldest first)
+      parameters:
+        - $ref: '#/components/parameters/perPage'
+        - { name: before_id, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Message' } } } } } } }
+        "404": { $ref: '#/components/responses/NotFound' }
+    post:
+      summary: Queue a text message
+      parameters: [ { $ref: '#/components/parameters/idem' } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 4096 } } } } }
+      responses:
+        "202": { description: Accepted for delivery, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/Message' } } } } } }
+        "422": { description: "Validation failed, contact opted out, or 24-hour window closed (Meta)" }
+  /whatsapp-accounts:
+    get:
+      summary: List WhatsApp accounts with provider type and capabilities
+      responses: { "200": { description: OK } }
+  /templates:
+    get:
+      summary: List message templates
+      parameters: [ { name: status, in: query, schema: { type: string, enum: [draft, pending, approved, rejected, paused, disabled] } } ]
+      responses: { "200": { description: OK } }
+  /messages/template:
+    post:
+      summary: Send an approved template to a phone number
+      parameters: [ { $ref: '#/components/parameters/idem' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, template]
+              properties:
+                phone: { type: string, example: "+919876543210" }
+                template: { type: string, example: order_shipped }
+                language: { type: string, example: en }
+                name: { type: string, description: Contact name if the contact is new }
+                whatsapp_account_id: { type: integer }
+                variables: { type: object, additionalProperties: { type: string }, example: { body_1: Meera, body_2: "#1042" } }
+                media_url: { type: string, description: Required for media headers (https) }
+                filename: { type: string }
+      responses:
+        "202": { description: Queued, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/Message' } } } } } }
+        "422": { description: Invalid phone, unknown/unapproved template, missing variables, or contact opted out }
+  /campaigns:
+    get:
+      summary: List campaigns with stats
+      responses: { "200": { description: OK } }
+  /campaigns/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      summary: Campaign status and stats
+      responses: { "200": { description: OK }, "404": { $ref: '#/components/responses/NotFound' } }

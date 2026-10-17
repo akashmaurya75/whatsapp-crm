@@ -1,0 +1,249 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use App\Auth\PasswordPolicy;
+use App\Core\App;
+use App\Core\Crypto;
+use App\Core\Database;
+use App\Core\Logger;
+use App\Core\Migrator;
+use App\Core\Session;
+use App\Install\InstallException;
+use App\Install\Installer;
+use App\Tenancy\TenantProvisioner;
+
+require dirname(__DIR__) . '/bootstrap.php';
+
+if (PHP_SAPI !== 'cli') {
+    exit(1);
+}
+
+$argv = $_SERVER['argv'];
+$command = $argv[1] ?? 'help';
+$opts = [];
+foreach (array_slice($argv, 2) as $arg) {
+    if (preg_match('/^--([a-z\-]+)(?:=(.*))?$/', $arg, $m)) {
+        $opts[$m[1]] = $m[2] ?? true;
+    }
+}
+
+function out(string $line): void { fwrite(STDOUT, $line . PHP_EOL); }
+function fail(string $line): never { fwrite(STDERR, $line . PHP_EOL); exit(1); }
+function ask(string $prompt, bool $hidden = false): string
+{
+    fwrite(STDOUT, $prompt);
+    if ($hidden && DIRECTORY_SEPARATOR === '/' && function_exists('posix_isatty') && posix_isatty(STDIN)) {
+        shell_exec('stty -echo');
+        $v = trim((string) fgets(STDIN));
+        shell_exec('stty echo');
+        fwrite(STDOUT, PHP_EOL);
+        return $v;
+    }
+    return trim((string) fgets(STDIN));
+}
+
+switch ($command) {
+    case 'setup':
+    case 'install':
+        // `setup`   → instant local install (SQLite, generated passwords).
+        // `install` → interactive install for servers (MySQL or SQLite), same engine as the web installer.
+        $installer = new Installer(BASE_PATH);
+        if ($installer->isInstalled()) {
+            fail('Already installed (storage/installed.lock or a configured .env exists). Nothing to do.');
+        }
+        out('Checking requirements…');
+        foreach ($installer->requirements() as $c) {
+            out(sprintf('  [%s] %s%s', $c['ok'] ? ' OK ' : ($c['required'] ? 'FAIL' : 'warn'), $c['label'], $c['ok'] ? '' : ' — ' . $c['help']));
+        }
+        if (!$installer->requirementsMet()) {
+            fail('Fix the FAIL items above and run again.');
+        }
+        $quick = $command === 'setup';
+        $port = (string) ($opts['port'] ?? '8000');
+        if ($quick) {
+            $dbIn = ['driver' => 'sqlite', 'sqlite_path' => ''];
+            $gen = static fn (): string => 'Wcrm-' . bin2hex(random_bytes(5)) . '7';
+            $appIn = ['app_name' => 'WhatsApp CRM', 'app_url' => "http://localhost:$port", 'country_code' => (string) ($opts['country'] ?? '91'),
+                'timezone' => 'UTC', 'company' => 'My Company', 'owner_name' => 'Owner', 'owner_email' => 'owner@localhost.test',
+                'owner_password' => $gen(), 'admin_email' => 'admin@localhost.test', 'admin_password' => $gen(), 'allow_registration' => ''];
+        } else {
+            $driver = strtolower(ask('Database type [mysql/sqlite] (mysql): ') ?: 'mysql');
+            $dbIn = ['driver' => $driver];
+            if ($driver === 'mysql') {
+                $dbIn += ['host' => ask('MySQL host (127.0.0.1): ') ?: '127.0.0.1', 'port' => ask('MySQL port (3306): ') ?: '3306',
+                    'database' => ask('Database name (whatsapp_crm): ') ?: 'whatsapp_crm', 'username' => ask('Database user: '),
+                    'password' => ask('Database password: ', true)];
+            } else {
+                $dbIn['sqlite_path'] = ask('SQLite file (storage/database.sqlite): ');
+            }
+            $appIn = ['app_url' => ask('Website address, e.g. https://crm.example.com: '), 'app_name' => ask('App name (WhatsApp CRM): ') ?: 'WhatsApp CRM',
+                'country_code' => ask('Default country calling code (91): ') ?: '91', 'timezone' => ask('Time zone (UTC): ') ?: 'UTC',
+                'company' => ask('Company name: '), 'owner_name' => ask('Your name: '), 'owner_email' => ask('Your email (company login): '),
+                'owner_password' => ask('Your password: ', true), 'admin_email' => ask('Platform admin email (different): '),
+                'admin_password' => ask('Platform admin password: ', true),
+                'allow_registration' => strtolower(ask('Allow other companies to sign up? [y/N]: ')) === 'y' ? '1' : ''];
+        }
+        try {
+            $dbCfg = $installer->checkDatabase($dbIn);
+            out('Database connection OK.');
+            [$app, $errors] = $installer->validateApp($appIn);
+            if ($errors !== []) {
+                foreach ($errors as $field => $msg) {
+                    out("  $field: $msg");
+                }
+                fail('Please run again with corrected values.');
+            }
+            $installer->install($dbCfg, $app);
+        } catch (InstallException $e) {
+            fail('Install failed: ' . $e->getMessage());
+        }
+        out('');
+        out('Installed. The web installer is now locked.');
+        if ($quick) {
+            out('================ Logins (save these; shown once) ================');
+            out("  Company owner : {$app['owner_email']}   /  {$app['owner_password']}");
+            out("  Platform admin: {$app['admin_email']}   /  {$app['admin_password']}");
+            out('=================================================================');
+            out("Start:  php -S localhost:$port -t public    and, in a 2nd terminal:  php bin/console queue:work");
+            out("Open:   http://localhost:$port");
+        } else {
+            out("Sign in at {$app['app_url']}/login. Start the worker: see docs/DEPLOYMENT.md (step 5).");
+        }
+        break;
+
+    case 'key:generate':
+        out(Crypto::generateKey());
+        out('Put this value in .env as APP_KEY=... (keep it secret; changing it makes stored credentials unreadable).');
+        break;
+
+    case 'migrate':
+        $applied = (new Migrator(Database::connection(), base_path('database/migrations')))->migrate();
+        TenantProvisioner::syncPermissions(Database::connection());
+        out($applied === [] ? 'Nothing to migrate.' : "Migrated:\n  " . implode("\n  ", $applied));
+        break;
+
+    case 'seed':
+        $db = Database::connection();
+        TenantProvisioner::syncPermissions($db);
+        Installer::seedPlans($db);
+        out('Seeded permissions and plans (prices are 0 until you set them in /admin).');
+        break;
+
+    case 'create-admin':
+        $db = Database::connection();
+        $email = strtolower((string) ($opts['email'] ?? ask('Super admin email: ')));
+        $name = (string) ($opts['name'] ?? ask('Name: '));
+        $password = (string) (getenv('ADMIN_PASSWORD') ?: ask('Password: ', true));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            fail('Invalid email.');
+        }
+        if (($err = PasswordPolicy::check($password, $email)) !== null) {
+            fail($err);
+        }
+        if ($db->scalar('SELECT 1 FROM users WHERE email = ?', [$email]) !== null) {
+            fail('A user with that email already exists.');
+        }
+        $id = $db->insert('users', ['tenant_id' => null, 'role_id' => null, 'name' => $name ?: 'Administrator', 'email' => $email,
+            'password_hash' => PasswordPolicy::hash($password), 'is_super_admin' => 1, 'status' => 'active',
+            'email_verified_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        out("Super admin #$id created. Sign in at /login, then enable 2FA under Security.");
+        break;
+
+    case 'create-tenant':
+        $company = (string) ($opts['company'] ?? ask('Company name: '));
+        $owner = (string) ($opts['owner'] ?? ask('Owner name: '));
+        $email = strtolower((string) ($opts['email'] ?? ask('Owner email: ')));
+        $password = (string) (getenv('OWNER_PASSWORD') ?: ask('Owner password: ', true));
+        if (($err = PasswordPolicy::check($password, $email)) !== null) {
+            fail($err);
+        }
+        $ids = (new TenantProvisioner(Database::connection()))->provision($company, $owner, $email, $password);
+        out("Company #{$ids['tenant_id']} created with owner user #{$ids['user_id']}.");
+        break;
+
+    case 'queue:work':
+        $queues = array_filter(explode(',', (string) ($opts['queue'] ?? 'webhooks,messages,default')));
+        $once = isset($opts['once']);
+        $maxJobs = (int) ($opts['max-jobs'] ?? 1000);
+        $workerId = gethostname() . ':' . getmypid();
+        $stop = false;
+        if (function_exists('pcntl_async_signals')) {
+            pcntl_async_signals(true);
+            pcntl_signal(SIGTERM, function () use (&$stop) { $stop = true; });
+            pcntl_signal(SIGINT, function () use (&$stop) { $stop = true; });
+        }
+        out("Worker $workerId processing: " . implode(', ', $queues));
+        $processed = 0;
+        while (!$stop) {
+            @file_put_contents(base_path('storage/worker.heartbeat'), (string) time());
+            $did = false;
+            foreach ($queues as $q) {
+                // A fresh App per job: no tenant context or caches leak between jobs.
+                $app = new App(Database::connection(), Session::memory());
+                if ($app->queue->work($app, $q, $workerId)) {
+                    $did = true;
+                    $processed++;
+                    break;
+                }
+            }
+            if ($once && !$did) {
+                break;
+            }
+            if ($processed >= $maxJobs) {
+                out("Processed $processed jobs; exiting so the supervisor restarts a fresh process.");
+                break;
+            }
+            if (!$did) {
+                usleep(500_000);
+            }
+        }
+        break;
+
+    case 'schedule:run':
+        // Maintenance only (use with a permanent queue:work worker). Run every minute from cron.
+        $r = \App\Core\Scheduler::run(Database::connection(), true, isset($opts['health']));
+        $c = $r['campaigns'];
+        if (($c['started'] ?? 0) + ($c['queued'] ?? 0) + ($c['completed'] ?? 0) > 0) {
+            out("Campaigns: {$c['started']} started, {$c['queued']} messages queued, {$c['completed']} completed.");
+        }
+        out('Scheduled maintenance done.' . ($r['health'] ? " Checked {$r['health']} account(s)." : ''));
+        break;
+
+    case 'cron':
+        // Shared hosting: one cron job every minute does everything (jobs + maintenance), ~50 s per run.
+        $seconds = max(5, min(300, (int) ($opts['seconds'] ?? 50)));
+        $r = \App\Core\BackgroundRunner::run($seconds, 'cron');
+        if ($r['locked']) {
+            out('Another run is still in progress; nothing to do.');
+            break;
+        }
+        if (!isset($opts['quiet'])) {
+            out("Processed {$r['jobs']} job(s) in {$r['seconds']}s" . ($r['scheduled'] ? ', maintenance done.' : '.'));
+        }
+        break;
+
+    case 'queue:retry':
+        $id = (int) ($opts['id'] ?? 0);
+        $app = new App(Database::connection(), Session::memory());
+        out($app->queue->retryFailed($id) ? "Job $id re-queued." : "No failed job $id.");
+        break;
+
+    default:
+        out(<<<TXT
+        WhatsApp CRM console
+
+          install                      Interactive install (MySQL or SQLite) — or open the site in a browser
+          setup [--port=8000]          Instant local install (SQLite + generated logins)
+          key:generate                 Print a new APP_KEY
+          migrate                      Run database migrations
+          seed                         Seed permissions and default plans
+          create-admin [--email= --name=]   Create a platform super admin (password from prompt or ADMIN_PASSWORD)
+          create-tenant [--company= --owner= --email=]  Create a company + owner (OWNER_PASSWORD or prompt)
+          queue:work [--queue=a,b] [--once] [--max-jobs=N]   Run the queue worker
+          queue:retry --id=N           Re-queue a failed job
+          schedule:run [--health]      Maintenance + hourly health checks (run every minute via cron, with queue:work)
+          cron [--seconds=50] [--quiet]  Shared hosting: jobs + maintenance in one cron job, every minute
+        TXT);
+}

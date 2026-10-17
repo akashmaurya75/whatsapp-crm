@@ -1,0 +1,22 @@
+# /etc/systemd/system/whatsapp-crm-worker.service
+# sudo systemctl enable --now whatsapp-crm-worker
+# Run several instances (whatsapp-crm-worker@1..N) by turning this into a template unit if volume grows.
+[Unit]
+Description=WhatsApp CRM queue worker
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/whatsapp-crm
+ExecStart=/usr/bin/php bin/console queue:work --queue=webhooks,messages,default --max-jobs=1000
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

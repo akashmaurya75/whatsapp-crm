@@ -403,3 +403,4 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 .setup-steps li { margin-bottom: 8px; }
 input[readonly]:not([data-copy-source]) { background: var(--surface-2); color: var(--muted); }
 details.small summary { cursor: pointer; font-weight: 600; margin: 8px 0; }
+.diag small, .diag span { overflow-wrap: anywhere; }

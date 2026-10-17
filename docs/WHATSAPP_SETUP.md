@@ -87,3 +87,22 @@ software; check Meta's current pricing for your countries.
 5. **Test connection** calls `getConnectionState` and reports `CONNECTED` or the session state.
 
 The webhook URL contains a 256-bit secret token that identifies the account; rotate it from the account page if leaked.
+
+## Incoming messages don't appear in the Inbox
+
+Open **WhatsApp accounts → your number → Check and fix**. It tests every link in the chain and fixes the most common
+problem by itself:
+
+| Check | What it means |
+|---|---|
+| Webhook address uses https | Meta only delivers to https. Set `APP_URL=https://…` in `.env` |
+| Phone number ID and access token work | Wrong ID (the WABA ID pasted as phone number ID is common) or an expired token |
+| Phone number belongs to the WhatsApp Business Account | The two IDs don't match |
+| **Your Meta app is subscribed to the WhatsApp Business Account** | **Most common cause.** Without it Meta never forwards messages. "Check and fix" subscribes it automatically (the CRM also does this when you save the account or test the connection) |
+| App ID and App Secret match | A wrong App Secret makes every webhook fail the signature check |
+| Callback URL / "messages" field | The Meta app must send to this account's webhook URL and have **messages** subscribed |
+| App mode | In Development mode, Meta only delivers messages from numbers listed under API Setup → "To". Switch the app to **Live** |
+| Last delivery from Meta | When Meta last reached the server, and whether it was accepted or rejected (and why) |
+| Background processing | The cron job (shared hosting) or worker must run, or received messages wait in the queue |
+
+The Inbox refreshes by itself every 5 seconds: new chats appear at the top, with unread counts in the list and in the browser tab title.

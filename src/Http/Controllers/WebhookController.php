@@ -50,13 +50,34 @@ final class WebhookController extends Controller
         $provider = $this->app->providers->get((string) $account['provider']);
         if (!$provider->verifySignature(AccountRepository::credentials($account), $request)) {
             Logger::warning('Webhook signature rejected', ['account_id' => $account['id'], 'ip' => $request->ip()]);
+            $this->track((int) $account['id'], $request->header('x-hub-signature-256') === ''
+                ? 'rejected: no signature header (is a proxy or firewall removing headers?)'
+                : 'rejected: signature does not match the App Secret saved on this account');
             return Response::text('Invalid signature', 401);
         }
         if (!is_array(json_decode($request->body, true))) {
+            $this->track((int) $account['id'], 'rejected: body is not JSON');
             return Response::text('Bad request', 400);
         }
         $this->app->queue->push(ProcessWebhookJob::class, ['account_id' => (int) $account['id'], 'payload' => $request->body], 'webhooks');
+        $this->track((int) $account['id'], 'received');
         return Response::text('OK');
+    }
+
+    /** Remembers the latest webhook delivery per account, shown on the account page for troubleshooting. */
+    private function track(int $accountId, string $result): void
+    {
+        try {
+            $this->app->db->update('whatsapp_accounts', ['last_webhook_at' => now(), 'last_webhook_result' => mb_substr($result, 0, 255)], ['id' => $accountId]);
+        } catch (\Throwable) {
+            // Never fail a webhook because of bookkeeping (e.g. migration not applied yet).
+        }
+    }
+
+    /** Platform endpoint: rejected deliveries can't be tied to an account, so they go to a small status file. */
+    private static function trackPlatform(string $result): void
+    {
+        @file_put_contents(base_path('storage/platform-webhook.last'), json_encode(['at' => now(), 'result' => $result]), LOCK_EX);
     }
 
     // ------------------------------------------------------------ platform (app-level) webhook
@@ -84,6 +105,8 @@ final class WebhookController extends Controller
         $header = $request->header('x-hub-signature-256');
         if ($secret === '' || !str_starts_with($header, 'sha256=') || !hash_equals('sha256=' . hash_hmac('sha256', $request->body, $secret), $header)) {
             Logger::warning('Platform webhook signature rejected', ['ip' => $request->ip()]);
+            self::trackPlatform($secret === '' ? 'rejected: the Meta app (Admin → Meta app) has no App Secret saved'
+                : 'rejected: signature does not match the platform App Secret');
             return Response::text('Invalid signature', 401);
         }
         if (strlen($request->body) > 1_048_576) {
@@ -120,7 +143,10 @@ final class WebhookController extends Controller
         foreach ($accounts as $a) {
             // Each account's parser keeps only events for its own phone number / WABA.
             $this->app->queue->push(ProcessWebhookJob::class, ['account_id' => (int) $a['id'], 'payload' => $request->body], 'webhooks');
+            $this->track((int) $a['id'], 'received (via platform webhook)');
         }
+        self::trackPlatform($accounts === [] ? 'received, but no connected account has phone number ID ' . implode(', ', $phones)
+            : 'received');
         return Response::text('OK');
     }
 }

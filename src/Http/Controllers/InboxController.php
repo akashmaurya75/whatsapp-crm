@@ -61,7 +61,7 @@ final class InboxController extends Controller
         $list = $inbox->conversations->inbox($this->user(), $this->app->can('inbox.view_all'), $filters, $this->page($request), 30);
         $data = [
             'list' => $list['data'], 'total' => $list['total'], 'page' => $this->page($request), 'filters' => $filters,
-            'conv' => $conv, 'accounts' => $inbox->accounts->allForTenant(),
+            'conv' => $conv, 'accounts' => $inbox->accounts->allForTenant(), 'stamp' => self::stamp($list['data'], (int) $list['total']),
         ];
         if ($conv !== null) {
             $tid = $this->app->tenant->id();
@@ -205,6 +205,41 @@ final class InboxController extends Controller
     }
 
     /** JSON polling endpoint: messages newer than ?after=id plus status changes for recent ones. */
+    /** Fingerprint of the visible list: changes when a chat gets a message, is read, assigned, pinned… */
+    private static function stamp(array $rows, int $total): string
+    {
+        $parts = [$total];
+        foreach ($rows as $r) {
+            $parts[] = implode('|', [$r['id'], $r['last_message_at'], $r['unread_count'], $r['last_message_preview'] ?? '',
+                $r['assignee_name'] ?? '', $r['is_pinned'], $r['priority'], $r['status'] ?? '']);
+        }
+        return substr(sha1(implode("\n", $parts)), 0, 16);
+    }
+
+    /** Live refresh of the conversation list (polled every few seconds by the Inbox page). */
+    public function updates(Request $request): Response
+    {
+        $inbox = $this->inbox();
+        $filters = $this->filters($request);
+        $list = $inbox->conversations->inbox($this->user(), $this->app->can('inbox.view_all'), $filters, $this->page($request), 30);
+        $stamp = self::stamp($list['data'], (int) $list['total']);
+        $unread = 0;
+        foreach ($list['data'] as $r) {
+            $unread += (int) $r['unread_count'] > 0 ? 1 : 0;
+        }
+        $out = ['stamp' => $stamp, 'unread' => $unread];
+        if ($stamp !== (string) ($request->query['stamp'] ?? '')) {
+            $query = array_filter(['q' => $filters['q'], 'status' => $filters['status'] !== 'open' ? $filters['status'] : '',
+                'assigned' => $filters['assigned'], 'account' => $filters['account'] ?: '']);
+            $active = (int) ($request->query['active'] ?? 0);
+            $out['html'] = $this->app->view->render('inbox/list', [
+                'list' => $list['data'], 'conv' => $active > 0 ? ['id' => $active] : null,
+                'qs' => query_with($query, []), 'accounts' => $inbox->accounts->allForTenant(),
+            ]);
+        }
+        return Response::json($out);
+    }
+
     public function poll(Request $request): Response
     {
         $inbox = $this->inbox();

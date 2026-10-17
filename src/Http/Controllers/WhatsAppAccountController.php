@@ -11,6 +11,7 @@ use App\Core\Response;
 use App\Core\Validator;
 use App\Domain\Contacts\PhoneNormalizer;
 use App\WhatsApp\AccountRepository;
+use App\WhatsApp\WebhookDoctor;
 use App\WhatsApp\Capability;
 
 final class WhatsAppAccountController extends Controller
@@ -56,6 +57,7 @@ final class WhatsAppAccountController extends Controller
             'account' => $account, 'provider' => $provider, 'recentErrors' => $errors,
             'webhookUrl' => url('/webhooks/whatsapp/' . $account['webhook_token']),
             'canManage' => $this->app->can('whatsapp.manage'),
+            'diagnosis' => $this->app->session->getFlash('diagnosis'),
         ]);
     }
 
@@ -91,7 +93,11 @@ final class WhatsAppAccountController extends Controller
             'created_at' => now(), 'updated_at' => now(),
         ]);
         $this->app->auditLog('whatsapp_account.created', 'whatsapp_account', $id, ['provider' => $key]);
-        $this->flash('success', 'Account saved. Configure the webhook URL below, then run a connection test.');
+        if ($key === 'meta_cloud') {
+            // Meta only forwards incoming messages when the WABA is subscribed to the app; do it right away.
+            $this->subscribeQuietly((int) $id);
+        }
+        $this->flash('success', 'Account saved. Configure the webhook URL below, then press "Check and fix".');
         return Response::redirect('/whatsapp/' . $id);
     }
 
@@ -131,6 +137,23 @@ final class WhatsAppAccountController extends Controller
         return Response::redirect('/whatsapp/' . $account['id']);
     }
 
+    private function subscribeQuietly(int $id): void
+    {
+        $account = $this->app->db->first('SELECT * FROM whatsapp_accounts WHERE id = ?', [$id]);
+        $waba = (string) ($account['business_account_id'] ?? '');
+        $token = (string) (AccountRepository::credentials((array) $account)['access_token'] ?? '');
+        if ($account === null || !preg_match('/^\d+$/', $waba) || $token === '') {
+            return;
+        }
+        try {
+            $base = rtrim((string) env('META_GRAPH_URL', 'https://graph.facebook.com'), '/');
+            $this->app->http->request('POST', $base . '/' . \App\WhatsApp\MetaPlatform::graphVersion() . '/' . $waba . '/subscribed_apps',
+                ['Authorization' => 'Bearer ' . $token], null, 10);
+        } catch (\Throwable) {
+            // Best effort: "Check and fix" reports and retries this.
+        }
+    }
+
     public function rotateWebhookToken(Request $request): Response
     {
         $account = $this->repo()->findOrFail($request->intParam('id'));
@@ -148,6 +171,9 @@ final class WhatsAppAccountController extends Controller
         $update = ['status' => $result['ok'] ? 'connected' : 'error', 'updated_at' => now()];
         if ($result['ok']) {
             $update['last_synced_at'] = now();
+            if ($account['provider'] === 'meta_cloud' && !AccountRepository::isManaged($account)) {
+                $this->subscribeQuietly((int) $account['id']);
+            }
         } else {
             $update['last_error'] = mb_substr($result['message'], 0, 500);
             $update['last_error_at'] = now();
@@ -155,6 +181,24 @@ final class WhatsAppAccountController extends Controller
         $this->repo()->update((int) $account['id'], $update);
         $this->flash($result['ok'] ? 'success' : 'error', $result['message']);
         return Response::redirect('/whatsapp/' . $account['id']);
+    }
+
+    /** "Check and fix": finds why incoming messages don't arrive, and subscribes the WABA to the app if needed. */
+    public function diagnose(Request $request): Response
+    {
+        $account = $this->repo()->findOrFail($request->intParam('id'));
+        if ($account['provider'] !== 'meta_cloud') {
+            return Response::redirect('/whatsapp/' . $account['id']);
+        }
+        $url = AccountRepository::isManaged($account) ? url('/webhooks/meta') : url('/webhooks/whatsapp/' . $account['webhook_token']);
+        $checks = (new WebhookDoctor($this->app->db, $this->app->http))->diagnose($account, $url, true);
+        foreach ($checks as $c) {
+            if (!empty($c['fixed'])) {
+                $this->app->auditLog('whatsapp_account.webhook_subscribed', 'whatsapp_account', (int) $account['id']);
+            }
+        }
+        $this->app->session->flash('diagnosis', $checks);
+        return Response::redirect('/whatsapp/' . $account['id'] . '#receiving');
     }
 
     public function destroy(Request $request): Response

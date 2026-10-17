@@ -15,7 +15,7 @@ Legend: ✅ implemented & tested · 🟡 partial · ⬜ not yet built. Section n
 | 5 | Auth | Login, throttling, TOTP 2FA + recovery codes, password reset, invites, password policy, session timeouts, sign out everywhere, login history |
 | 5 | RBAC | 19 permissions, 8 default roles per company, custom roles, owner protection |
 | 6 | Dashboard | Real counts: conversations (open/unassigned/awaiting), messages in/out, delivery statuses, avg reply time, contacts, follow-ups, lead status, account health; date & account filters |
-| 7 | Team inbox | 3-pane, real-time polling, reply-to, statuses, search, pin/archive/read/unread/close/reopen, assign/transfer to agent/team with history, internal notes, priority, keyboard shortcuts, pagination, mobile layout |
+| 7 | Team inbox | 3-pane, live refresh of the conversation list and the open chat (5 s polling), unread count in the tab title, reply-to, statuses, search, pin/archive/read/unread/close/reopen, assign/transfer to agent/team with history, internal notes, priority, keyboard shortcuts, pagination, mobile layout |
 | 8 | Contacts | CRUD, E.164 normalisation, duplicate prevention, tags, notes, consent & opt-out (incl. STOP keyword), owner, follow-up date, archive/restore, search/filter/sort, CSV export (formula-safe) |
 | 11 | Outbound engine (single messages) | Queue, idempotency keys, per-account throttle, bounded retries with backoff, permanent vs transient errors, 24-h window check, opt-out check at send time |
 | 15 | REST API v1 | Tokens (hashed, expiry, revoke), contacts CRUD, conversations, messages, accounts; rate limit, idempotency, request ids, OpenAPI |
@@ -26,13 +26,14 @@ Legend: ✅ implemented & tested · 🟡 partial · ⬜ not yet built. Section n
 | 26 | Security | See `SECURITY.md` |
 | 27 | Reliability | DB transactions, idempotent jobs, failed-job store, worker heartbeat, hourly health checks, retention cleanup |
 | — | Installer | Web wizard (requirements, MySQL/SQLite test + auto-create, accounts), CLI `install`/`setup`, self-locking, remote install key, start scripts, Apache/LiteSpeed .htaccess |
+| — | Receiving diagnostics | Per-account "Receiving messages" panel: last delivery from Meta and why it was rejected or ignored; "Check and fix" checks https, IDs, token, WABA→app subscription (auto-fixed), App Secret, callback URL, "messages" field, app mode and background processing; WABA auto-subscribed on save/test |
 | — | Shared Linux hosting | Hosting-type choice; sub-folder and file-exposure self-checks; panel-specific help (cPanel, Hostinger, DirectAdmin, Plesk); app folder outside `public_html` found automatically; one `cron` command (locked, time-boxed) or secret web-cron URL; inline processing after responses (LiteSpeed/FPM); OpenSSL AES-GCM when `sodium` is missing; PHP 8.3 CLI path detection for cron; auto-migrate after upgrades; cron status on System health |
 | 10 | Campaign manager | Audience by tags/exclusions/lead status/recent activity, variable mapping with fallbacks, media headers (upload or link), consent requirement or audited attestation, frequency cap, opt-out exclusion (twice: at start and at send), per-minute throttling, send now / schedule, pause/resume/cancel, dry-run preview with exclusion reasons, test send, live report (sent/delivered/read/replied/failed), funnel, recipient list, CSV export, duplicate |
 | 12 | Automations (rule-based) | Welcome (once per contact), out-of-office with weekly business hours and time zone, keyword replies (exact/contains/starts) with actions (tag, assign team/agent, lead status), text or template replies, cooldowns, per-message and hourly caps, activity log |
 | 17 | Message templates | Builder with live WhatsApp preview, Meta validation rules, text/image/video/document headers, body variables with samples, footer, quick-reply/URL (incl. dynamic suffix)/call buttons, submit for approval, approval/rejection via webhook, sync from WhatsApp Manager, quality score, duplicate, delete (also in Meta) |
 | 8 | Contact import | CSV with header auto-mapping, tags, consent column or audited bulk consent, update/skip existing, opt-outs preserved, row-level error report |
 | 11 | Template notifications API | `POST /api/v1/messages/template` by phone number, idempotent, creates contacts, respects opt-outs |
-| 28 | Tests | 119 tests (incl. templates, campaigns, automations, import, installer, shared hosting): auth, 2FA, CSRF, XSS escaping, tenant isolation, permissions, webhooks (signature, dedupe, ordering, opt-out), dispatch (success/retry/permanent/idempotent), API (auth, idempotency, rate limit), crypto, TOTP vectors |
+| 28 | Tests | 124 tests (incl. templates, campaigns, automations, import, installer, shared hosting): auth, 2FA, CSRF, XSS escaping, tenant isolation, permissions, webhooks (signature, dedupe, ordering, opt-out), dispatch (success/retry/permanent/idempotent), API (auth, idempotency, rate limit), crypto, TOTP vectors |
 
 ## 🟡 Partial
 

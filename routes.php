@@ -113,6 +113,7 @@ return static function (Router $r): void {
             $r->post('/contacts/{id}/conversation', [ContactController::class, 'startConversation'], [[Can::class, 'inbox.reply']]);
 
             $r->get('/inbox', [InboxController::class, 'index'], [[Can::class, 'inbox.view']]);
+            $r->get('/inbox/updates', [InboxController::class, 'updates'], [[Can::class, 'inbox.view']]);
             $r->get('/inbox/{id}', [InboxController::class, 'show'], [[Can::class, 'inbox.view']]);
             $r->get('/inbox/{id}/poll', [InboxController::class, 'poll'], [[Can::class, 'inbox.view']]);
             $r->post('/inbox/{id}/messages', [InboxController::class, 'send'], [[Can::class, 'inbox.reply']]);
@@ -161,6 +162,7 @@ return static function (Router $r): void {
             $r->get('/whatsapp/{id}', [WhatsAppAccountController::class, 'show'], [[Can::class, 'whatsapp.view']]);
             $r->post('/whatsapp/{id}', [WhatsAppAccountController::class, 'update'], [[Can::class, 'whatsapp.manage']]);
             $r->post('/whatsapp/{id}/test', [WhatsAppAccountController::class, 'test'], [[Can::class, 'whatsapp.manage']]);
+            $r->post('/whatsapp/{id}/diagnose', [WhatsAppAccountController::class, 'diagnose'], [[Can::class, 'whatsapp.manage'], [Throttle::class, 'wadiagnose', '20', '600']]);
             $r->post('/whatsapp/{id}/rotate-webhook', [WhatsAppAccountController::class, 'rotateWebhookToken'], [[Can::class, 'whatsapp.manage']]);
             $r->post('/whatsapp/{id}/delete', [WhatsAppAccountController::class, 'destroy'], [[Can::class, 'whatsapp.manage']]);
 

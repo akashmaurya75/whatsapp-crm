@@ -325,3 +325,29 @@
     setInterval(poll, 5000);
   }
 })();
+
+// Inbox: live refresh of the conversation list (new chats, unread badges, previews) every 5 s.
+(function () {
+  var holder = document.querySelector('[data-list-poll]');
+  if (!holder) return;
+  var baseTitle = document.title.replace(/^\(\d+\)\s*/, '');
+  function setTitle(n) { document.title = (n > 0 ? '(' + n + ') ' : '') + baseTitle; }
+  function refresh() {
+    if (document.hidden) return;
+    var url = holder.getAttribute('data-list-poll');
+    url += (url.indexOf('?') === -1 ? '?' : '&') + 'stamp=' + encodeURIComponent(holder.getAttribute('data-stamp') || '');
+    fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        setTitle(data.unread || 0);
+        if (typeof data.html === 'string') {
+          holder.innerHTML = data.html;
+          holder.setAttribute('data-stamp', data.stamp);
+        }
+      })
+      .catch(function () { /* offline for a moment; next round retries */ });
+  }
+  setInterval(refresh, 5000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) refresh(); });
+})();

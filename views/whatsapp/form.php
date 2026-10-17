@@ -63,7 +63,33 @@ $val = static fn (string $f, ?string $col = null) => old_value($old, $f, $accoun
     <h2>Webhook</h2>
     <p class="small">Incoming messages and template approvals arrive automatically through the platform's Meta app. Nothing to configure.</p>
   </section>
-  <?php elseif ($account): ?>
+  <?php endif; ?>
+  <?php if ($account && $isMeta): ?>
+  <section class="card" id="receiving">
+    <h2>Receiving messages</h2>
+    <ul class="list small">
+      <li><span>Last delivery from Meta</span><b><?= $account['last_webhook_at'] ? e(time_ago($account['last_webhook_at'])) : 'never' ?></b></li>
+      <?php if (!empty($account['last_webhook_result'])): ?><li><span>Result</span><span class="<?= str_starts_with((string) $account['last_webhook_result'], 'received') ? '' : 'field-error' ?>"><?= e($account['last_webhook_result']) ?></span></li><?php endif; ?>
+      <li><span>Last customer message</span><b><?= $account['last_message_in_at'] ? e(time_ago($account['last_message_in_at'])) : 'never' ?></b></li>
+    </ul>
+    <?php if (!empty($diagnosis)): ?>
+      <ul class="checklist diag">
+        <?php foreach ($diagnosis as $d): ?>
+          <li class="<?= $d['state'] === 'ok' ? 'ok' : ($d['state'] === 'fail' ? 'bad' : 'warn') ?>">
+            <span class="check-icon" aria-hidden="true"><?= $d['state'] === 'ok' ? '✓' : ($d['state'] === 'fail' ? '✕' : '!') ?></span>
+            <span><?= e($d['label']) ?><?= !empty($d['fixed']) ? ' <b class="pill pill-connected">fixed</b>' : '' ?><br><small class="<?= $d['state'] === 'fail' ? 'field-error' : 'muted' ?>"><?= e($d['detail']) ?></small></span>
+          </li>
+        <?php endforeach; ?>
+      </ul>
+    <?php else: ?>
+      <p class="small muted">Messages not showing up in the Inbox? This checks your Meta setup step by step and fixes the webhook subscription automatically.</p>
+    <?php endif; ?>
+    <?php if ($editable): ?>
+    <form method="post" action="/whatsapp/<?= (int) $account['id'] ?>/diagnose"><?= csrf_field($app) ?><button class="btn btn-sm" type="submit">Check and fix</button></form>
+    <?php endif; ?>
+  </section>
+  <?php endif; ?>
+  <?php if ($account && !$managed): ?>
   <section class="card">
     <h2>Webhook</h2>
     <p class="small"><?= $isMeta ? 'In Meta App Dashboard → WhatsApp → Configuration, set this Callback URL and your verify token, then subscribe to the <b>messages</b> field.' : 'Configure your OpenWA gateway to POST events to this URL (e.g. <code>--webhook</code>).' ?></p>

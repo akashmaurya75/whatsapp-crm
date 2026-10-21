@@ -29,10 +29,12 @@ permission opens **WhatsApp accounts → Continue with Facebook**:
    - set *Access token* to **System-user access token** with token expiration **Never** (with *60 days*, every company
      must reconnect every two months);
    - copy the **configuration ID** into Admin → Meta app.
-5. **WhatsApp → Configuration → Webhook:**
-   - paste the **Callback URL** (`https://your-domain/webhooks/meta`) and the **Verify token** shown on the Admin page;
-   - subscribe to `messages`, `message_template_status_update` and `account_update`.
-6. Press **Test App ID & Secret with Meta**.
+5. **Webhook:** press **Save & auto-configure** on Admin → Meta app. It checks the App ID and Secret, registers
+   `https://your-domain/webhooks/meta` and the verify token with Meta (Meta verifies it on the spot), subscribes
+   `messages`, `message_template_status_update` and `account_update`, and lists anything still to do by hand.
+   Press it again after moving to a new domain. (By hand: WhatsApp → Configuration → Webhook, paste the Callback URL
+   and Verify token shown on the Admin page.)
+6. Check that the auto-configure checklist is all green, or follow its "Open in Meta" links.
 7. To onboard **other** businesses, complete business verification and app review for the two permissions (become a Meta
    *Tech Provider*). Until then only people with a role on your Meta app can use the button.
 

@@ -13,16 +13,36 @@
   <label>App Secret <input type="password" name="app_secret" autocomplete="new-password" placeholder="<?= $cfg['app_secret'] !== '' ? '•••••••• stored — leave blank to keep' : '' ?>"><?= field_error($errors, 'app_secret') ?></label>
   <label>Embedded Signup configuration ID <input name="config_id" value="<?= e(old_value($old, 'config_id', $cfg['config_id'])) ?>" inputmode="numeric" class="mono"><?= field_error($errors, 'config_id') ?></label>
   <p class="hint">Stored encrypted. Values in .env (META_APP_ID, …) are used only when these are empty.</p>
-  <div class="form-actions"><button class="btn" type="submit">Save</button></div>
+  <div class="form-actions">
+    <button class="btn" type="submit" name="autoconfigure" value="1">Save &amp; auto-configure</button>
+    <button class="btn btn-ghost" type="submit">Save only</button>
+  </div>
+  <p class="hint"><b>Auto-configure</b> checks the App ID and Secret, registers this server's webhook with Meta (callback URL, verify token and fields) and lists anything left to do by hand.</p>
   <hr>
-  <h2>Webhook (paste these into Meta)</h2>
+  <h2>Webhook</h2>
+  <p class="hint">Auto-configure sends these to Meta for you. Copy them only if you set the webhook up by hand.</p>
   <label>Callback URL <span class="copy-row"><input readonly value="<?= e($callback) ?>" data-copy-source><button type="button" class="btn btn-ghost btn-sm" data-copy>Copy</button></span></label>
   <label>Verify token <span class="copy-row"><input readonly value="<?= e($verify) ?>" class="mono" data-copy-source><button type="button" class="btn btn-ghost btn-sm" data-copy>Copy</button></span></label>
-  <label class="check"><input type="checkbox" name="rotate_verify" value="1"> <span>Generate a new verify token when saving <small class="muted">(update it in Meta afterwards)</small></span></label>
+  <label class="check"><input type="checkbox" name="rotate_verify" value="1"> <span>Generate a new verify token when saving <small class="muted">(auto-configure sends it to Meta; with Save only, update it in Meta yourself)</small></span></label>
 </form>
 <div class="stack">
+  <?php if (!empty($autoconfig)): ?>
+  <section class="card" data-autoconfig>
+    <h2>Auto-configure result</h2>
+    <ul class="checklist diag">
+      <?php foreach ($autoconfig as $c): ?>
+        <li class="<?= $c['state'] === 'ok' ? 'ok' : ($c['state'] === 'fail' ? 'bad' : 'warn') ?>">
+          <span class="check-icon" aria-hidden="true"><?= $c['state'] === 'ok' ? '✓' : ($c['state'] === 'fail' ? '✕' : '!') ?></span>
+          <span><?= e($c['label']) ?><br><small class="<?= $c['state'] === 'fail' ? 'field-error' : 'muted' ?>"><?= e($c['detail']) ?></small>
+            <?php if (!empty($c['link'])): ?><br><a class="small" href="<?= e($c['link']) ?>" target="_blank" rel="noopener noreferrer">Open in Meta ↗</a><?php endif; ?></span>
+        </li>
+      <?php endforeach; ?>
+    </ul>
+  </section>
+  <?php endif; ?>
   <section class="card">
     <h2>Check</h2>
+    <form method="post" action="/admin/meta/autoconfigure"><?= csrf_field($app) ?><button class="btn" type="submit">Run auto-configure again</button></form>
     <form method="post" action="/admin/meta/test"><?= csrf_field($app) ?><button class="btn btn-ghost" type="submit">Test App ID &amp; Secret with Meta</button></form>
     <p class="small muted"><?= (int) $connected ?> Meta WhatsApp number(s) connected on this platform.</p>
   </section>
@@ -48,7 +68,7 @@
       <li><b>App settings → Basic:</b> copy the App ID and App Secret here. Under <i>App domains</i> add <code><?= e($domain ?: 'your-domain') ?></code>, and add a privacy policy URL.</li>
       <li><b>Facebook Login for Business → Settings:</b> turn on <i>Login with the JavaScript SDK</i> and add <code>https://<?= e($domain ?: 'your-domain') ?></code> to <i>Allowed domains for the JavaScript SDK</i>.</li>
       <li><b>Facebook Login for Business → Configurations → Create:</b> choose <i>WhatsApp Embedded Signup</i>, select the WhatsApp product (this uses Embedded Signup v4) and the permissions <code>whatsapp_business_management</code> and <code>whatsapp_business_messaging</code>. Choose the <i>System-user access token</i> with token expiration <b>Never</b> so numbers stay connected. Copy the <b>configuration ID</b> here.</li>
-      <li><b>WhatsApp → Configuration → Webhook:</b> paste the Callback URL and Verify token shown here, then subscribe to <code>messages</code>, <code>message_template_status_update</code> and <code>account_update</code>.</li>
+      <li><b>Webhook:</b> press <b>Save &amp; auto-configure</b>. It registers the Callback URL and Verify token with Meta and subscribes <code>messages</code>, <code>message_template_status_update</code> and <code>account_update</code>. (By hand: WhatsApp → Configuration → Webhook.)</li>
       <li>To let <b>other companies</b> connect (SaaS), complete Meta business verification and app review for those two permissions (become a <i>Tech Provider</i>). Until then only people with a role on your app can use the button.</li>
     </ol>
   </section>

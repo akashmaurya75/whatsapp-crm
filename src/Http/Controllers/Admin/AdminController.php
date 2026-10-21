@@ -11,6 +11,7 @@ use App\Core\Response;
 use App\Core\Validator;
 use App\Http\Controllers\Controller;
 use App\Tenancy\TenantProvisioner;
+use App\WhatsApp\MetaAutoConfigurator;
 use App\WhatsApp\MetaPlatform;
 use App\WhatsApp\TokenMonitor;
 
@@ -172,6 +173,7 @@ final class AdminController extends Controller
             'callback' => url('/webhooks/meta'), 'domain' => (string) parse_url((string) env('APP_URL', ''), PHP_URL_HOST),
             'https' => str_starts_with((string) env('APP_URL', ''), 'https://'),
             'connected' => (int) $this->app->db->scalar("SELECT COUNT(*) FROM whatsapp_accounts WHERE provider = 'meta_cloud'"),
+            'autoconfig' => $this->app->session->getFlash('autoconfig'),
             'tokens' => (array) $this->app->db->first("SELECT
                 SUM(CASE WHEN token_checked_at IS NOT NULL AND token_expires_at IS NULL AND status <> 'needs_reconnect' THEN 1 ELSE 0 END) AS never,
                 SUM(CASE WHEN token_expires_at IS NOT NULL AND status <> 'needs_reconnect' THEN 1 ELSE 0 END) AS dated,
@@ -215,7 +217,23 @@ final class AdminController extends Controller
         }
         MetaPlatform::save($this->app->db, $values, $this->app->userId());
         $this->app->auditLog('admin.meta_app_saved', null, null, ['app_id' => $appId, 'secret_changed' => $secret !== '', 'verify_rotated' => !empty($request->post['rotate_verify'])]);
+        if (!empty($request->post['autoconfigure'])) {
+            return $this->metaAutoconfigure($request);
+        }
         $this->flash('success', 'Meta app settings saved.');
+        return Response::redirect('/admin/meta');
+    }
+
+    /** Register the platform webhook with Meta and report what is left to do by hand. */
+    public function metaAutoconfigure(Request $request): Response
+    {
+        $checks = (new MetaAutoConfigurator($this->app->db, $this->app->http))->run(url('/webhooks/meta'));
+        $failed = array_filter($checks, static fn (array $c) => $c['state'] === MetaAutoConfigurator::FAIL) !== [];
+        $this->app->auditLog('admin.meta_autoconfigured', null, null, ['ok' => !$failed,
+            'checks' => array_map(static fn (array $c) => $c['label'] . ': ' . $c['state'], $checks)]);
+        $this->app->session->flash('autoconfig', $checks);
+        $this->flash($failed ? 'error' : 'success', $failed ? 'Auto-configure stopped at a step that needs attention (see the checklist).'
+            : 'Meta app settings saved and webhook configured automatically.');
         return Response::redirect('/admin/meta');
     }
 

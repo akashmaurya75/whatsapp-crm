@@ -27,12 +27,27 @@
     <p class="small muted"><?= (int) $connected ?> Meta WhatsApp number(s) connected on this platform.</p>
   </section>
   <section class="card">
+    <h2>Access tokens</h2>
+    <ul class="small">
+      <li><b><?= (int) ($tokens['never'] ?? 0) ?></b> never expire</li>
+      <li><b><?= (int) ($tokens['dated'] ?? 0) ?></b> expire<?= !empty($tokens['next_expiry']) ? ' (next: ' . e(substr((string) $tokens['next_expiry'], 0, 10)) . ' UTC)' : '' ?></li>
+      <li><b><?= (int) ($tokens['broken'] ?? 0) ?></b> need reconnecting</li>
+      <li><b><?= (int) ($tokens['unchecked'] ?? 0) ?></b> not checked yet (or connected manually with a token)</li>
+    </ul>
+    <?php if ((int) ($tokens['dated'] ?? 0) > 0): ?>
+      <p class="alert alert-warn small">Some tokens expire. In <b>Facebook Login for Business → Configurations</b>, edit the Embedded Signup configuration and set
+        <i>Access token → Token expiration</i> to <b>Never</b>. Numbers connected afterwards get a permanent token; reconnect the others once.</p>
+    <?php endif; ?>
+    <p class="hint">Checked with Meta daily. Companies are emailed and shown a banner a week before expiry, or as soon as Meta rejects a token.</p>
+    <form method="post" action="/admin/meta/tokens"><?= csrf_field($app) ?><button class="btn btn-ghost" type="submit">Check all tokens now</button></form>
+  </section>
+  <section class="card">
     <h2>One-time setup in Meta</h2>
     <ol class="small setup-steps">
       <li>At <b>developers.facebook.com</b> create an app (type <b>Business</b>) linked to your verified Meta business portfolio, and add the <b>WhatsApp</b> product.</li>
       <li><b>App settings → Basic:</b> copy the App ID and App Secret here. Under <i>App domains</i> add <code><?= e($domain ?: 'your-domain') ?></code>, and add a privacy policy URL.</li>
       <li><b>Facebook Login for Business → Settings:</b> turn on <i>Login with the JavaScript SDK</i> and add <code>https://<?= e($domain ?: 'your-domain') ?></code> to <i>Allowed domains for the JavaScript SDK</i>.</li>
-      <li><b>Facebook Login for Business → Configurations → Create:</b> choose <i>WhatsApp Embedded Signup</i>, select the WhatsApp product (this uses Embedded Signup v4) and the permissions <code>whatsapp_business_management</code> and <code>whatsapp_business_messaging</code>. Copy the <b>configuration ID</b> here.</li>
+      <li><b>Facebook Login for Business → Configurations → Create:</b> choose <i>WhatsApp Embedded Signup</i>, select the WhatsApp product (this uses Embedded Signup v4) and the permissions <code>whatsapp_business_management</code> and <code>whatsapp_business_messaging</code>. Choose the <i>System-user access token</i> with token expiration <b>Never</b> so numbers stay connected. Copy the <b>configuration ID</b> here.</li>
       <li><b>WhatsApp → Configuration → Webhook:</b> paste the Callback URL and Verify token shown here, then subscribe to <code>messages</code>, <code>message_template_status_update</code> and <code>account_update</code>.</li>
       <li>To let <b>other companies</b> connect (SaaS), complete Meta business verification and app review for those two permissions (become a <i>Tech Provider</i>). Until then only people with a role on your app can use the button.</li>
     </ol>

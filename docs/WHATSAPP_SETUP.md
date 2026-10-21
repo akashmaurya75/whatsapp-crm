@@ -26,6 +26,8 @@ permission opens **WhatsApp accounts → Continue with Facebook**:
 4. **Facebook Login for Business → Configurations → Create:**
    - choose *WhatsApp Embedded Signup* and select the WhatsApp product (this gives Embedded Signup **v4**);
    - grant the permissions `whatsapp_business_management` and `whatsapp_business_messaging`;
+   - set *Access token* to **System-user access token** with token expiration **Never** (with *60 days*, every company
+     must reconnect every two months);
    - copy the **configuration ID** into Admin → Meta app.
 5. **WhatsApp → Configuration → Webhook:**
    - paste the **Callback URL** (`https://your-domain/webhooks/meta`) and the **Verify token** shown on the Admin page;
@@ -37,6 +39,15 @@ permission opens **WhatsApp accounts → Continue with Facebook**:
 Requirements:
 - The site must be served over **https** (for local testing use a tunnel such as `cloudflared`).
 - The app uses Graph API **v25.0** (`META_GRAPH_VERSION`). Embedded Signup v2 is retired by Meta on 15 Oct 2026, and this app uses v4.
+
+Staying connected:
+- Each number's token is checked with Meta (`debug_token`) when it is connected and once a day (`schedule:run`);
+  Admin → Meta app shows how many tokens never expire, expire, or need reconnecting, and can check them all on demand.
+- A week before a token expires, the company's owners and admins get an email and an in-app banner.
+- If Meta rejects a token (error 190: expired, revoked, or the user removed the app), the number is marked
+  **needs reconnect**: sends stop, its running and scheduled campaigns are paused, and owners and admins are emailed once.
+- **Reconnect with Facebook** (banner, account page or email link) runs the same sign-in and updates the number in place.
+  Conversations, templates and settings are kept; resume paused campaigns afterwards.
 
 Security:
 - The App Secret and every business token are encrypted at rest and never sent to the browser.

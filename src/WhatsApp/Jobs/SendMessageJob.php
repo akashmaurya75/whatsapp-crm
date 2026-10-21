@@ -11,6 +11,7 @@ use App\Core\ReleaseJob;
 use App\Domain\Campaigns\CampaignService;
 use App\WhatsApp\TemplateProvider;
 use App\WhatsApp\AccountRepository;
+use App\WhatsApp\TokenMonitor;
 
 /**
  * Dispatches one queued outbound message to its provider.
@@ -64,6 +65,10 @@ final class SendMessageJob implements Job
                 throw new ReleaseJob(60, 'Campaign paused');
             }
         }
+        if ($account['status'] === 'needs_reconnect') {
+            $this->markFailed($app, $msg, 'reconnect', 'The WhatsApp account must be reconnected with Facebook before messages can be sent.');
+            return;
+        }
         // Per-account throttle (messages/second) so we never exceed provider limits.
         $perSecond = max(1, (int) env('WHATSAPP_SEND_RATE_PER_SECOND', 20));
         if (!$app->limiter->hit('wa-send:' . $account['id'] . ':' . time(), $perSecond, 2)) {
@@ -114,6 +119,9 @@ final class SendMessageJob implements Job
             'retryable' => $result->retryable, 'attempt' => $attempt,
         ]);
         $db->update('whatsapp_accounts', ['last_error' => mb_substr((string) $result->errorMessage, 0, 500), 'last_error_at' => now()], ['id' => (int) $account['id']]);
+        if ($account['provider'] === 'meta_cloud' && TokenMonitor::isAuthError($result->errorCode)) {
+            (new TokenMonitor($db, $app->http, $app->mailer))->markNeedsReconnect((int) $account['id'], 'Meta rejected the access token: ' . $result->errorMessage);
+        }
         if ($result->retryable && $attempt < $this->maxAttempts()) {
             throw new \RuntimeException('Retryable provider error ' . $result->errorCode);
         }

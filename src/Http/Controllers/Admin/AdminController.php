@@ -12,6 +12,7 @@ use App\Core\Validator;
 use App\Http\Controllers\Controller;
 use App\Tenancy\TenantProvisioner;
 use App\WhatsApp\MetaPlatform;
+use App\WhatsApp\TokenMonitor;
 
 /**
  * Platform administration. Deliberately has no access to message contents:
@@ -171,7 +172,23 @@ final class AdminController extends Controller
             'callback' => url('/webhooks/meta'), 'domain' => (string) parse_url((string) env('APP_URL', ''), PHP_URL_HOST),
             'https' => str_starts_with((string) env('APP_URL', ''), 'https://'),
             'connected' => (int) $this->app->db->scalar("SELECT COUNT(*) FROM whatsapp_accounts WHERE provider = 'meta_cloud'"),
+            'tokens' => (array) $this->app->db->first("SELECT
+                SUM(CASE WHEN token_checked_at IS NOT NULL AND token_expires_at IS NULL AND status <> 'needs_reconnect' THEN 1 ELSE 0 END) AS never,
+                SUM(CASE WHEN token_expires_at IS NOT NULL AND status <> 'needs_reconnect' THEN 1 ELSE 0 END) AS dated,
+                MIN(CASE WHEN status <> 'needs_reconnect' THEN token_expires_at END) AS next_expiry,
+                SUM(CASE WHEN status = 'needs_reconnect' THEN 1 ELSE 0 END) AS broken,
+                SUM(CASE WHEN token_checked_at IS NULL AND status <> 'needs_reconnect' THEN 1 ELSE 0 END) AS unchecked
+                FROM whatsapp_accounts WHERE provider = 'meta_cloud'"),
         ]);
+    }
+
+    /** Run the daily token check now for every Facebook-connected number. */
+    public function metaTokens(Request $request): Response
+    {
+        $n = (new TokenMonitor($this->app->db, $this->app->http, $this->app->mailer))->checkAll();
+        $this->app->auditLog('platform.meta_tokens_checked', null, null, ['checked' => $n]);
+        $this->flash('success', "Checked $n Facebook-connected number(s) with Meta.");
+        return Response::redirect('/admin/meta');
     }
 
     public function metaSave(Request $request): Response

@@ -208,7 +208,8 @@ switch ($command) {
         if (($c['started'] ?? 0) + ($c['queued'] ?? 0) + ($c['completed'] ?? 0) > 0) {
             out("Campaigns: {$c['started']} started, {$c['queued']} messages queued, {$c['completed']} completed.");
         }
-        out('Scheduled maintenance done.' . ($r['health'] ? " Checked {$r['health']} account(s)." : ''));
+        out('Scheduled maintenance done.' . ($r['health'] ? " Checked {$r['health']} account(s)." : '')
+            . ($r['tokens'] ? " Checked {$r['tokens']} Meta token(s)." : ''));
         break;
 
     case 'cron':

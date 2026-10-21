@@ -251,7 +251,8 @@ final class MetaCloudProvider implements Provider, TemplateProvider
         if ($res['status'] === 200 && isset($json['display_phone_number'])) {
             return ['ok' => true, 'message' => 'Connected: ' . ($json['verified_name'] ?? '') . ' ' . $json['display_phone_number'], 'details' => $json];
         }
-        return ['ok' => false, 'message' => (string) ($json['error']['message'] ?? 'HTTP ' . $res['status'])];
+        return ['ok' => false, 'message' => (string) ($json['error']['message'] ?? 'HTTP ' . $res['status']),
+            'code' => (string) ($json['error']['code'] ?? $res['status'])];
     }
 
     public function verificationChallenge(array $credentials, Request $request): ?string

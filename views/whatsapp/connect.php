@@ -2,6 +2,12 @@
 <div class="page-head"><div><a class="small" href="/whatsapp">← WhatsApp accounts</a><h1>Connect your WhatsApp number</h1>
   <p class="muted">Sign in with Facebook, choose your business and number, and we set up everything else automatically.</p></div></div>
 
+<?php if (!empty($reconnect) && !$choice): ?>
+  <div class="alert alert-warn"><strong>Reconnecting <?= e($reconnect['name']) ?> <span class="mono"><?= e($reconnect['phone_e164'] ?? '') ?></span>.</strong>
+    In the Facebook window, pick the same business and number. Your conversations, templates and settings are kept,
+    and paused campaigns can be resumed afterwards.</div>
+<?php endif; ?>
+
 <?php if ($choice): ?>
   <section class="card connect-card">
     <h2>Which number do you want to connect?</h2>

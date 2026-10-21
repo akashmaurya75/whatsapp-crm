@@ -194,6 +194,7 @@ return static function (Router $r): void {
             $r->get('/admin/meta', [AdminController::class, 'meta']);
             $r->post('/admin/meta', [AdminController::class, 'metaSave']);
             $r->post('/admin/meta/test', [AdminController::class, 'metaTest']);
+            $r->post('/admin/meta/tokens', [AdminController::class, 'metaTokens'], [[Throttle::class, 'metatokens', '5', '600']]);
             $r->post('/admin/failed-jobs/{id}/retry', [AdminController::class, 'retryFailed']);
             $r->get('/admin/audit', [AdminController::class, 'audit']);
         });

@@ -6,17 +6,20 @@ namespace App\Core;
 
 use App\Domain\Campaigns\CampaignRunner;
 use App\WhatsApp\AccountRepository;
+use App\WhatsApp\TokenMonitor;
 use Throwable;
 
 /**
- * Periodic maintenance: cleanup, retention, campaign batches and the hourly account health check.
- * Safe to call as often as you like: it runs at most once per minute (and health checks once per hour),
- * tracked in small files under storage/.
+ * Periodic maintenance: cleanup, retention, campaign batches, the hourly account health check
+ * and the daily Meta token check.
+ * Safe to call as often as you like: it runs at most once per minute (health checks once per hour,
+ * token checks once per day), tracked in small files under storage/.
  */
 final class Scheduler
 {
     public const STAMP = 'storage/schedule.last';
     public const HEALTH_STAMP = 'storage/health.last';
+    public const TOKEN_STAMP = 'storage/tokens.last';
 
     public static function due(int $now = 0): bool
     {
@@ -35,13 +38,14 @@ final class Scheduler
         @file_put_contents(base_path($rel), (string) time(), LOCK_EX);
     }
 
-    /** @return array{ran:bool,campaigns:array<string,int>,health:int} */
-    public static function run(Database $db, bool $force = false, bool $forceHealth = false): array
+    /** @return array{ran:bool,campaigns:array<string,int>,health:int,tokens:int} */
+    public static function run(Database $db, bool $force = false, bool $forceHealth = false, ?HttpClient $http = null): array
     {
         if (!$force && !self::due()) {
-            return ['ran' => false, 'campaigns' => [], 'health' => 0];
+            return ['ran' => false, 'campaigns' => [], 'health' => 0, 'tokens' => 0];
         }
         self::touch(self::STAMP);
+        $app = new App($db, Session::memory(), $http ?? new CurlHttpClient());
 
         $db->run('DELETE FROM rate_limits WHERE reset_at < ?', [time() - 60]);
         $db->run('DELETE FROM webhook_events WHERE received_at < ?', [gmdate('Y-m-d H:i:s', time() - 30 * 86400)]);
@@ -57,19 +61,25 @@ final class Scheduler
         }
 
         // Campaigns: start due ones and queue this minute's batches.
-        $campaigns = CampaignRunner::tick(new App($db, Session::memory()));
+        $campaigns = CampaignRunner::tick($app);
 
+        // Tokens first, so a dead token is reported as "needs_reconnect" rather than a generic health error.
+        $tokens = 0;
+        if ($forceHealth || time() - self::stamp(self::TOKEN_STAMP) >= 86400) {
+            self::touch(self::TOKEN_STAMP);
+            $tokens = (new TokenMonitor($db, $app->http, $app->mailer))->checkAll();
+        }
         $checked = 0;
         if ($forceHealth || time() - self::stamp(self::HEALTH_STAMP) >= 3600) {
             self::touch(self::HEALTH_STAMP);
-            $checked = self::healthCheck($db);
+            $checked = self::healthCheck($app);
         }
-        return ['ran' => true, 'campaigns' => $campaigns, 'health' => $checked];
+        return ['ran' => true, 'campaigns' => $campaigns, 'health' => $checked, 'tokens' => $tokens];
     }
 
-    private static function healthCheck(Database $db): int
+    private static function healthCheck(App $app): int
     {
-        $app = new App($db, Session::memory());
+        $db = $app->db;
         $n = 0;
         foreach ($db->all("SELECT a.id FROM whatsapp_accounts a JOIN tenants t ON t.id = a.tenant_id WHERE t.status = 'active'") as $row) {
             $acc = $db->first('SELECT * FROM whatsapp_accounts WHERE id = ?', [$row['id']]);
@@ -81,13 +91,19 @@ final class Scheduler
             } catch (Throwable $e) {
                 $r = ['ok' => false, 'message' => $e->getMessage()];
             }
-            $db->update('whatsapp_accounts', $r['ok']
-                ? ['status' => 'connected', 'last_synced_at' => now()]
-                : ['status' => 'error', 'last_error' => mb_substr((string) $r['message'], 0, 500), 'last_error_at' => now()], ['id' => $acc['id']]);
-            if (!$r['ok']) {
-                Logger::warning('Account health check failed', ['account_id' => $acc['id']]);
-            }
             $n++;
+            if ($r['ok']) {
+                $db->update('whatsapp_accounts', ['status' => 'connected', 'last_synced_at' => now()]
+                    + ($acc['status'] === 'needs_reconnect' ? ['token_status' => null, 'reconnect_notified_at' => null] : []), ['id' => $acc['id']]);
+                continue;
+            }
+            Logger::warning('Account health check failed', ['account_id' => $acc['id']]);
+            if ($acc['provider'] === 'meta_cloud' && TokenMonitor::isAuthError($r['code'] ?? null)) {
+                (new TokenMonitor($db, $app->http, $app->mailer))->markNeedsReconnect((int) $acc['id'], 'Meta rejected the access token: ' . $r['message']);
+            } elseif ($acc['status'] !== 'needs_reconnect') {
+                // A network blip must not hide that the account still needs reconnecting.
+                $db->update('whatsapp_accounts', ['status' => 'error', 'last_error' => mb_substr((string) $r['message'], 0, 500), 'last_error_at' => now()], ['id' => $acc['id']]);
+            }
         }
         return $n;
     }

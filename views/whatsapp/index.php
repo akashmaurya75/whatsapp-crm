@@ -22,7 +22,8 @@
       <td><a href="/whatsapp/<?= (int) $a['id'] ?>"><strong><?= e($a['name']) ?></strong></a></td>
       <td><?= $p ? e($p->label()) : e($a['provider']) ?><?= $p && !$p->isOfficial() ? ' <span class="pill pill-warn">unofficial</span>' : '' ?></td>
       <td class="mono"><?= e($a['phone_e164'] ?? '—') ?></td>
-      <td><span class="pill pill-<?= e($a['status']) ?>"><?= e($a['status']) ?></span></td>
+      <td><span class="pill pill-<?= e($a['status']) ?>"><?= e(str_replace('_', ' ', (string) $a['status'])) ?></span>
+        <?php if ($a['status'] === 'needs_reconnect' && $app->can('whatsapp.manage')): ?><a class="small" href="/whatsapp/connect?account=<?= (int) $a['id'] ?>">Reconnect</a><?php endif; ?></td>
       <td><?= e(time_ago($a['last_synced_at'])) ?></td>
       <td><?= (int) ($usage[$a['id']]['in'] ?? 0) ?> in · <?= (int) ($usage[$a['id']]['out'] ?? 0) ?> out</td>
       <td class="small"><?= $a['last_error'] ? e(mb_substr((string) $a['last_error'], 0, 80)) . ' <span class="muted">(' . e(time_ago($a['last_error_at'])) . ')</span>' : '—' ?></td>

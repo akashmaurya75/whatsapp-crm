@@ -208,7 +208,8 @@ final class EmbeddedSignupService
             'name' => mb_substr($name, 0, 120), 'phone_e164' => $e164, 'phone_number_id' => $phoneId, 'business_account_id' => $wabaId,
             'credentials_enc' => Crypto::encryptArray($creds),
             'capabilities' => json_encode(array_map(static fn (Capability $c) => $c->value, $provider->capabilities())),
-            'status' => 'connected', 'last_synced_at' => now(), 'last_error' => $warnings[0] ?? null,
+            'status' => 'connected', 'token_status' => null, 'token_expires_at' => null, 'token_checked_at' => null, 'reconnect_notified_at' => null,
+            'last_synced_at' => now(), 'last_error' => $warnings[0] ?? null,
             'last_error_at' => $warnings ? now() : null, 'updated_at' => now(),
         ];
         $repo = new AccountRepository($this->db, $this->tenant);
@@ -225,6 +226,18 @@ final class EmbeddedSignupService
         } catch (Throwable $e) {
             $warnings[] = 'Templates could not be imported yet; use "Sync from Meta" on the Templates page.';
             Logger::warning('Template sync after signup failed', ['account_id' => $accountId, 'error' => $e->getMessage()]);
+        }
+
+        // Record the token's real lifetime (best effort; the daily check fills it in otherwise).
+        try {
+            (new TokenMonitor($this->db, $this->http))->check((array) $this->db->first('SELECT * FROM whatsapp_accounts WHERE id = ?', [$accountId]));
+            $expires = $this->db->scalar('SELECT token_expires_at FROM whatsapp_accounts WHERE id = ?', [$accountId]);
+            if ($expires !== null) {
+                $warnings[] = 'Facebook access for this number expires on ' . substr((string) $expires, 0, 10) . ' UTC; you will need to reconnect before then. '
+                    . 'The platform admin can avoid this by setting the token expiration to "Never" in the Meta Embedded Signup configuration.';
+            }
+        } catch (Throwable $e) {
+            Logger::warning('Token check after signup failed', ['account_id' => $accountId, 'error' => $e->getMessage()]);
         }
         return ['status' => 'connected', 'account_id' => $accountId, 'warnings' => $warnings, 'created' => $owner === null];
     }

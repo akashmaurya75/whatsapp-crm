@@ -39,8 +39,21 @@ $val = static fn (string $f, ?string $col = null) => old_value($old, $f, $accoun
   <?php endif; ?>
   <?php $storedCreds = $account ? App\WhatsApp\AccountRepository::credentials($account) : []; ?>
   <?php if ($managed): ?>
-    <div class="span-2 alert alert-success small">✓ Connected with Facebook. Access is managed automatically.
-      <?php if ($editable): ?><a href="/whatsapp/connect">Reconnect with Facebook</a> if Meta access was removed or the token stopped working.<?php endif; ?></div>
+    <?php
+    $reconnectUrl = '/whatsapp/connect?account=' . (int) $account['id'];
+    $tokenNote = match (true) {
+        $account['token_checked_at'] === null => 'Access token not checked yet (checked daily).',
+        $account['token_expires_at'] === null => 'Access token never expires · checked ' . time_ago($account['token_checked_at']) . '.',
+        default => 'Access token expires ' . substr((string) $account['token_expires_at'], 0, 10) . ' UTC · checked ' . time_ago($account['token_checked_at']) . '.',
+    };
+    ?>
+    <?php if ($account['status'] === 'needs_reconnect'): ?>
+    <div class="span-2 alert alert-error small"><strong>Meta no longer accepts this account's access.</strong> Messages can't be sent and its campaigns were paused.
+      <?php if ($editable): ?><a class="btn btn-fb btn-sm" href="<?= e($reconnectUrl) ?>">Reconnect with Facebook</a><?php endif; ?></div>
+    <?php else: ?>
+    <div class="span-2 alert <?= $account['token_status'] === 'expiring' ? 'alert-warn' : 'alert-success' ?> small">✓ Connected with Facebook. <?= e($tokenNote) ?>
+      <?php if ($editable): ?><a href="<?= e($reconnectUrl) ?>">Reconnect with Facebook</a> if Meta access was removed or the token stopped working.<?php endif; ?></div>
+    <?php endif; ?>
   <?php endif; ?>
   <?php foreach ($managed ? [] : $provider->credentialFields() as $field => [$label, $secret, $required]): ?>
     <label class="span-2"><?= e($label) ?><?= $required ? '' : ' <small class="muted">(optional)</small>' ?>

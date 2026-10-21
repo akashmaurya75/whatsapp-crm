@@ -23,6 +23,11 @@ $nav = $isAdmin ? [
     ['/settings/api-tokens', 'API tokens', 'key', 'api_tokens.manage'],
     ['/audit', 'Audit log', 'list', 'audit.view'],
 ];
+// Accounts that need someone to sign in with Facebook again (shown as a banner on every page).
+$attention = [];
+if (!$isAdmin && $user && $app->can('whatsapp.view')) {
+    $attention = $app->db->all("SELECT id, name, status FROM whatsapp_accounts WHERE tenant_id = ? AND (status = 'needs_reconnect' OR token_status = 'expiring') ORDER BY name", [$user['tenant_id']]);
+}
 $unread = 0;
 if (!$isAdmin && $user && $app->can('inbox.view')) {
     $unread = (int) $app->db->scalar("SELECT COALESCE(SUM(unread_count),0) FROM conversations WHERE tenant_id = ? AND status = 'open' AND (assigned_user_id = ? OR assigned_user_id IS NULL)", [$user['tenant_id'], $user['id']]);
@@ -85,6 +90,13 @@ if (!$isAdmin && $user && $app->can('inbox.view')) {
     <?php if (!empty($toast)): ?>
       <div class="toast toast-<?= e($toast['type'] ?? 'info') ?>" role="status" data-toast><?= e($toast['message'] ?? '') ?><button type="button" class="toast-close" aria-label="Dismiss" data-dismiss>&times;</button></div>
     <?php endif; ?>
+    <?php foreach ($attention as $acc): $broken = $acc['status'] === 'needs_reconnect'; ?>
+      <div class="alert <?= $broken ? 'alert-error' : 'alert-warn' ?> banner" role="alert" data-reconnect-banner>
+        <strong><?= e($acc['name']) ?>:</strong>
+        <?= $broken ? 'Meta stopped accepting this WhatsApp number\'s access. Messages can\'t be sent and its campaigns are paused.' : 'Facebook access for this WhatsApp number expires within a week.' ?>
+        <?php if ($app->can('whatsapp.manage')): ?><a href="/whatsapp/connect?account=<?= (int) $acc['id'] ?>">Reconnect with Facebook</a><?php else: ?>Ask a company admin to reconnect it.<?php endif; ?>
+      </div>
+    <?php endforeach; ?>
     <main id="main" class="content<?= !empty($wide) ? ' content-wide' : '' ?>">
       <?= $content ?>
     </main>

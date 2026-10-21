@@ -147,7 +147,7 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 /* Pills, badges, alerts */
 .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); font-size: .78rem; font-weight: 600; color: var(--muted); }
 .pill-connected, .pill-active { background: var(--ok-soft); color: var(--ok); }
-.pill-error, .pill-suspended, .pill-disconnected { background: var(--danger-soft); color: var(--danger); }
+.pill-error, .pill-suspended, .pill-disconnected, .pill-needs_reconnect { background: var(--danger-soft); color: var(--danger); }
 .pill-pending, .pill-invited, .pill-warn { background: var(--warn-soft); color: var(--warn); }
 .badge { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; font-size: .72rem; font-weight: 700; }
 .badge-accent { background: var(--accent); color: var(--accent-ink); }
@@ -155,6 +155,7 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 .alert-success { background: var(--ok-soft); color: var(--ok); }
 .alert-error { background: var(--danger-soft); color: var(--danger); }
 .alert-warn { background: var(--warn-soft); color: var(--warn); }
+.alert.banner { margin: 12px 24px 0; }
 .toast { position: fixed; right: 20px; bottom: 20px; z-index: 50; display: flex; gap: 12px; align-items: center; max-width: 420px; padding: 12px 14px; border-radius: var(--radius); background: var(--text); color: var(--bg); box-shadow: 0 8px 24px rgba(0,0,0,.2); }
 .toast-error { background: var(--danger); color: #fff; }
 .toast-close { background: none; border: 0; color: inherit; font-size: 1.2rem; cursor: pointer; }

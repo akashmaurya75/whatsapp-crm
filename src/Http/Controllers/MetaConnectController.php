@@ -8,6 +8,7 @@ use App\Core\Crypto;
 use App\Core\Request;
 use App\Core\Response;
 use App\Domain\ValidationException;
+use App\WhatsApp\AccountRepository;
 use App\WhatsApp\EmbeddedSignupService;
 use App\WhatsApp\MetaPlatform;
 
@@ -38,9 +39,13 @@ final class MetaConnectController extends Controller
         $cfg = MetaPlatform::config($this->app->db);
         $choice = $this->pendingChoice();
         $https = $request->isSecure() || in_array(parse_url((string) env('APP_URL', ''), PHP_URL_HOST), ['localhost', '127.0.0.1'], true);
+        // ?account=ID: reconnecting an existing number (from the banner, account page or reminder email).
+        $accountId = (int) ($request->query['account'] ?? 0);
+        $reconnect = $accountId > 0 ? (new AccountRepository($this->app->db, $this->app->tenant))->find($accountId) : null;
         return $this->withMetaCsp($this->app->render('whatsapp/connect', [
             'ready' => MetaPlatform::signupReady($this->app->db), 'appId' => $cfg['app_id'], 'configId' => $cfg['config_id'],
             'version' => MetaPlatform::graphVersion(), 'https' => $https, 'choice' => $choice,
+            'reconnect' => $reconnect !== null && $reconnect['provider'] === 'meta_cloud' ? $reconnect : null,
             'isSuperAdmin' => false,
         ]));
     }
